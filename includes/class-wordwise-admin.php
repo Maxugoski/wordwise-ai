@@ -57,9 +57,51 @@ class Wordwise_Admin {
         if (isset($_POST['wwai_save_key'])) {
             check_admin_referer('wwai_save_key');
             update_option('wordwise_ai_api_key', sanitize_text_field($_POST['wordwise_ai_api_key']));
-            echo '<div class="updated"><p>Saved.</p></div>';
+            // Save model selection
+            if (isset($_POST['wordwise_ai_model'])) {
+                $model = sanitize_text_field($_POST['wordwise_ai_model']);
+                if ($model === 'custom' && !empty($_POST['wordwise_ai_custom_model'])) {
+                    $model = sanitize_text_field($_POST['wordwise_ai_custom_model']);
+                }
+                update_option('wordwise_ai_model', $model);
+            }
+            // If the user left model on Auto (empty) attempt to auto-detect best model from the API key
+            $saved_model = get_option('wordwise_ai_model', '');
+            if (empty($saved_model)) {
+                $api_key_try = sanitize_text_field($_POST['wordwise_ai_api_key']);
+                if (!empty($api_key_try)) {
+                    $list_models_url = "https://generativelanguage.googleapis.com/v1/models?key={$api_key_try}";
+                    $models_response = wp_remote_get($list_models_url);
+                    if (!is_wp_error($models_response)) {
+                        $models_data = json_decode(wp_remote_retrieve_body($models_response), true);
+                        if (!empty($models_data['models']) && is_array($models_data['models'])) {
+                            $available = array_map(function($m){ return preg_replace('#^models/#','', $m['name']); }, $models_data['models']);
+                            $preferred = [
+                                'gemini-pro-latest',
+                                'gemini-2.5-pro',
+                                'gemini-2.5-flash',
+                                'gemini-flash-latest',
+                                'gemini-pro'
+                            ];
+                            $picked = null;
+                            foreach ($preferred as $p) {
+                                if (in_array($p, $available, true)) { $picked = $p; break; }
+                            }
+                            if (is_null($picked)) { $picked = reset($available); }
+                            if (!empty($picked)) {
+                                update_option('wordwise_ai_model', $picked);
+                                $saved_model = $picked;
+                                echo '<div class="updated"><p>Saved. Auto-selected model: ' . esc_html($picked) . '.</p></div>';
+                            }
+                        }
+                    }
+                }
+            } else {
+                echo '<div class="updated"><p>Saved.</p></div>';
+            }
         }
         $key = esc_attr(get_option('wordwise_ai_api_key', ''));
+        $saved_model = esc_attr(get_option('wordwise_ai_model', ''));
         ?>
         <div class="wrap">
             <h1>WordWise AI Settings</h1>
@@ -69,6 +111,30 @@ class Wordwise_Admin {
                     <tr>
                         <th>Gemini API Key</th>
                         <td><input type="password" name="wordwise_ai_api_key" value="<?php echo $key; ?>" class="regular-text"/></td>
+                    </tr>
+                    <tr>
+                        <th>Model</th>
+                        <td>
+                            <?php
+                            $options = [
+                                '' => 'Auto (detect best available)',
+                                'gemini-pro-latest' => 'gemini-pro-latest',
+                                'gemini-2.5-pro' => 'gemini-2.5-pro',
+                                'gemini-2.5-flash' => 'gemini-2.5-flash',
+                                'gemini-flash-latest' => 'gemini-flash-latest',
+                                'gemini-2.0-pro-exp' => 'gemini-2.0-pro-exp',
+                                'gemini-2.0-flash' => 'gemini-2.0-flash',
+                                'custom' => 'Custom model (enter below)'
+                            ];
+                            ?>
+                            <select name="wordwise_ai_model">
+                                <?php foreach ($options as $val => $label): ?>
+                                    <option value="<?php echo esc_attr($val); ?>" <?php selected($saved_model, $val); ?>><?php echo esc_html($label); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <p class="description">Choose a model or leave on Auto to let the plugin pick the best available model for your key.</p>
+                            <p class="description">Custom model name: <input type="text" name="wordwise_ai_custom_model" value="<?php echo $saved_model && $saved_model !== '' && !isset($options[$saved_model]) ? $saved_model : ''; ?>" class="regular-text" placeholder="e.g. gemini-2.5-pro"/></p>
+                        </td>
                     </tr>
                 </table>
                 <p><input type="submit" name="wwai_save_key" class="button button-primary" value="Save Key"/></p>

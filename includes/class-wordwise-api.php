@@ -13,30 +13,63 @@ function wwai_send_prompt() {
     if (empty($api_key)) {
         wp_send_json_error(['message'=>'API key not configured. Add it in Settings → WordWise AI.']);
     }
-    $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.0-pro:generateContent?key={$api_key}";
-    $body = json_encode([
-        'prompt' => [
-            'text' => $prompt
-        ],
-        'temperature' => 0.7,
-        'maxOutputTokens' => 1024
-    ]);
-    
-    // First, let's verify if the model exists
-    $list_models_url = "https://generativelanguage.googleapis.com/v1beta/models?key={$api_key}";
+    // Fetch available models and pick a sensible default
+    $list_models_url = "https://generativelanguage.googleapis.com/v1/models?key={$api_key}";
     $models_response = wp_remote_get($list_models_url);
+    $model = null;
     if (!is_wp_error($models_response)) {
         $models_data = json_decode(wp_remote_retrieve_body($models_response), true);
-        if (isset($models_data['models'])) {
-            wp_send_json_error(['message' => 'Available models: ' . implode(', ', array_column($models_data['models'], 'name'))]);
-            return;
+        if (!empty($models_data['models']) && is_array($models_data['models'])) {
+            $available = array_map(function($m){
+                return preg_replace('#^models/#', '', $m['name']);
+            }, $models_data['models']);
+            // If the user selected a model in settings, prefer that (if available)
+            $saved_model = get_option('wordwise_ai_model', '');
+            if (!empty($saved_model)) {
+                // normalize
+                $norm = preg_replace('#^models/#', '', $saved_model);
+                if (in_array($norm, $available, true)) {
+                    $model = $norm;
+                }
+            }
+            // Preferred order if no saved model or saved model not available
+            if (is_null($model)) {
+                $preferred = [
+                    'gemini-pro-latest',
+                    'gemini-2.5-pro',
+                    'gemini-2.5-flash',
+                    'gemini-flash-latest',
+                    'gemini-pro'
+                ];
+                foreach ($preferred as $p) {
+                    if (in_array($p, $available, true)) { $model = $p; break; }
+                }
+            }
+            if (is_null($model)) {
+                // fallback to first available model (strip any prefix)
+                $model = reset($available);
+            }
         }
     }
-    
-    $response = wp_remote_post($url, [
-        'headers' => [
-            'Content-Type' => 'application/json'
+
+    if (empty($model)) {
+        wp_send_json_error(['message' => 'No models available for your API key.']);
+        return;
+    }
+
+    $url = "https://generativelanguage.googleapis.com/v1/models/{$model}:generateContent?key={$api_key}";
+    $body = json_encode([
+        'contents' => [
+            [ 'parts' => [ [ 'text' => $prompt ] ] ]
         ],
+        'generationConfig' => [
+            'temperature' => 0.7,
+            'maxOutputTokens' => 1024
+        ]
+    ]);
+
+    $response = wp_remote_post($url, [
+        'headers' => [ 'Content-Type' => 'application/json' ],
         'body' => $body,
         'timeout' => 60
     ]);
