@@ -12,7 +12,7 @@ class Wordwise_Admin {
     }
 
     public function render_page() {
-        $logo = esc_url(plugins_url('assets/images/wordwise-ai-logo.png', __FILE__ . '/../wordwise-ai.php'));
+        $logo = esc_url(plugins_url('/assets/images/wordwise-ai-logo.png', dirname(__FILE__) . '/../'));
         ?>
         <div class="wrap">
             <div class="max-w-6xl mx-auto p-6">
