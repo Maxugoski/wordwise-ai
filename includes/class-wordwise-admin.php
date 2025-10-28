@@ -12,11 +12,19 @@ class Wordwise_Admin {
     }
 
     public function render_page() {
-        $logo = esc_url(plugins_url('/assets/images/wordwise-ai-logo.png', dirname(__FILE__) . '/../'));
+        $plugin_dir = plugin_dir_url(dirname(__FILE__));
+        $logo = esc_url($plugin_dir . 'assets/images/wordwise-ai-logo.png');
         ?>
         <div class="wrap">
             <div class="max-w-6xl mx-auto p-6">
                 <div class="flex items-center space-x-4 mb-6">
+                    <?php
+                    // Debug info
+                    if (current_user_can('manage_options')) {
+                        echo "<!-- Logo URL: " . $logo . " -->\n";
+                        echo "<!-- Plugin Dir: " . plugin_dir_url(dirname(__FILE__)) . " -->\n";
+                    }
+                    ?>
                     <img src="<?php echo $logo; ?>" alt="WordWise AI" class="w-16 h-16 rounded"/>
                     <div>
                         <h1 class="text-2xl font-bold">WordWise AI</h1>
