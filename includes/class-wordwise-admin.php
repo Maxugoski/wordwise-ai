@@ -200,6 +200,7 @@ class Wordwise_Admin {
                         </td>
                     </tr>
             <form method="post">
+                <?php wp_nonce_field('wwai_save_key'); ?>
                 <p>
                     <input type="submit" name="wwai_save_key" class="button button-primary" value="Save Key"/>
                 </p>

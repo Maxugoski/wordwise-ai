@@ -31,23 +31,70 @@ function wwai_detect_model_for_key($api_key) {
     return $model;
 }
 
-function wwai_generate_once($api_key, $model, $prompt, $max_tokens = 1024, $temperature = 0.7, $timeout = 60) {
+function wwai_generate_once($api_key, $model, $prompt, $max_tokens = 1024, $temperature = 0.7, $timeout = 60, $retries = 2) {
     $url = "https://generativelanguage.googleapis.com/v1/models/" . rawurlencode($model) . ":generateContent?key=" . rawurlencode($api_key);
     $body = json_encode([
         'contents' => [[ 'parts' => [[ 'text' => $prompt ] ] ]],
         'generationConfig' => [ 'temperature' => $temperature, 'maxOutputTokens' => $max_tokens ]
     ]);
-    $resp = wp_remote_post($url, [ 'headers' => [ 'Content-Type' => 'application/json' ], 'body' => $body, 'timeout' => $timeout ]);
-    if (is_wp_error($resp)) return ['error'=>$resp->get_error_message()];
-    $raw = wp_remote_retrieve_body($resp);
-    $code = wp_remote_retrieve_response_code($resp);
-    // If HTTP response is not 2xx, return an error with diagnostics
-    if ($code < 200 || $code > 299) {
-        $snippet = substr($raw, 0, 500);
-        return ['error' => "HTTP {$code} returned from API.", 'raw' => $raw, 'code' => $code, 'snippet' => $snippet];
+
+    $attempt = 0;
+    while (true) {
+        $attempt++;
+        $resp = wp_remote_post($url, [ 'headers' => [ 'Content-Type' => 'application/json' ], 'body' => $body, 'timeout' => $timeout ]);
+
+        if (is_wp_error($resp)) {
+            $err = $resp->get_error_message();
+            if ($attempt <= $retries) {
+                // small backoff before retrying
+                $backoff = min(8, pow(2, $attempt));
+                sleep($backoff);
+                continue;
+            }
+            return ['error' => $err];
+        }
+
+        $raw = wp_remote_retrieve_body($resp);
+        $code = wp_remote_retrieve_response_code($resp);
+        $hdrs = wp_remote_retrieve_headers($resp);
+        // normalize headers to simple array for returning (cap size)
+        $headers_arr = [];
+        if (is_array($hdrs)) {
+            foreach ($hdrs as $k => $v) {
+                $headers_arr[$k] = is_array($v) ? implode(', ', array_slice($v,0,3)) : $v;
+            }
+        }
+
+        // 2xx => success
+        if ($code >= 200 && $code <= 299) {
+            $data = json_decode($raw, true);
+            return ['raw'=>$raw,'code'=>$code,'data'=>$data];
+        }
+
+        // For 5xx (server) errors, attempt retries if available
+        if ($code >= 500 && $code <= 599 && $attempt <= $retries) {
+            // honor Retry-After header if present
+            $wait = 0;
+            if (!empty($headers_arr['retry-after'])) {
+                $ra = $headers_arr['retry-after'];
+                if (is_numeric($ra)) $wait = intval($ra);
+                else {
+                    // try to parse HTTP-date
+                    $ts = strtotime($ra);
+                    if ($ts !== false) $wait = max(0, $ts - time());
+                }
+            }
+            if ($wait <= 0) {
+                $wait = min(8, pow(2, $attempt));
+            }
+            sleep($wait);
+            continue;
+        }
+
+        // Not retried or retries exhausted — return diagnostics
+        $snippet = is_string($raw) ? substr($raw, 0, 1000) : '';
+        return ['error' => "HTTP {$code} returned from API.", 'raw' => $raw, 'code' => $code, 'headers' => $headers_arr, 'snippet' => $snippet];
     }
-    $data = json_decode($raw, true);
-    return ['raw'=>$raw,'code'=>$code,'data'=>$data];
 }
 function wwai_get_api_key() {
     if (defined('WORDWISE_GEMINI_KEY') && !empty(WORDWISE_GEMINI_KEY)) return WORDWISE_GEMINI_KEY;
