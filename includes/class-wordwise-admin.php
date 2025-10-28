@@ -41,7 +41,18 @@ class Wordwise_Admin {
                             <div id="wwai-messages" class="h-64 overflow-auto p-3 border rounded mb-3 bg-gray-50"></div>
                             <div class="flex space-x-2">
                                 <input id="wwai-input" class="flex-1 border rounded px-3 py-2" placeholder="Type your prompt or paste content..."/>
-                                <button id="wwai-send" class="px-4 py-2 bg-green-500 text-white rounded">Send</button>
+                                <div class="flex items-center space-x-2">
+                                    <button id="wwai-template-btn" class="px-3 py-2 bg-blue-500 text-white rounded">Templates</button>
+                                    <button id="wwai-send" class="px-4 py-2 bg-green-500 text-white rounded">Send</button>
+                                </div>
+                            </div>
+                            <div id="wwai-template-form" class="mt-3 p-3 bg-gray-50 border rounded" style="display:none;">
+                                <h3 class="text-sm font-bold mb-2">Blog post template</h3>
+                                <p class="mb-2"><label>Title<br/><input id="wwai-blog-title" class="w-full border rounded px-2 py-1" placeholder="Post title (required)"/></label></p>
+                                <p class="mb-2"><label>Keywords (comma separated)<br/><input id="wwai-blog-keywords" class="w-full border rounded px-2 py-1" placeholder="e.g. developer experience, productivity"/></label></p>
+                                <p class="mb-2"><label>Tone<br/><select id="wwai-blog-tone" class="w-full border rounded px-2 py-1"><option>Informative</option><option>Casual</option><option>Professional</option><option>Persuasive</option></select></label></p>
+                                <p class="mb-2"><label>Length<br/><select id="wwai-blog-length" class="w-full border rounded px-2 py-1"><option value="short">Short (approx 600 words)</option><option value="medium" selected>Medium (approx 1200 words)</option><option value="long">Long (approx 2000+ words)</option></select></label></p>
+                                <p><button id="wwai-blog-generate" class="button button-primary">Generate Blog Post</button> <button id="wwai-blog-cancel" class="button">Cancel</button></p>
                             </div>
                         </div>
                     </div>
@@ -65,13 +76,69 @@ class Wordwise_Admin {
                 }
                 update_option('wordwise_ai_model', $model);
             }
+                // Save max tokens and retries
+                if (isset($_POST['wordwise_ai_max_output_tokens'])) {
+                    update_option('wordwise_ai_max_output_tokens', intval($_POST['wordwise_ai_max_output_tokens']));
+                }
+                if (isset($_POST['wordwise_ai_retries'])) {
+                    update_option('wordwise_ai_retries', intval($_POST['wordwise_ai_retries']));
+                }
+            // If Test button was clicked, perform a quick generation
+            if (isset($_POST['wwai_test'])) {
+                $test_key = sanitize_text_field($_POST['wordwise_ai_api_key']);
+                $test_model = get_option('wordwise_ai_model', '');
+                $test_max = intval(get_option('wordwise_ai_max_output_tokens', 1024));
+                if (empty($test_key)) {
+                    echo '<div class="error"><p>Please enter an API key to test.</p></div>';
+                } else {
+                    // Attempt to fetch models if model is empty
+                    if (empty($test_model)) {
+                        $list_models_url = "https://generativelanguage.googleapis.com/v1/models?key=" . rawurlencode($test_key);
+                        $models_response = wp_remote_get($list_models_url, ['timeout'=>15]);
+                        if (!is_wp_error($models_response)) {
+                            $models_data = json_decode(wp_remote_retrieve_body($models_response), true);
+                            if (!empty($models_data['models']) && is_array($models_data['models'])) {
+                                $available = array_map(function($m){ return preg_replace('#^models/#','', $m['name']); }, $models_data['models']);
+                                $preferred = [
+                                    'gemini-pro-latest', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-flash-latest', 'gemini-pro'
+                                ];
+                                $picked = null;
+                                foreach ($preferred as $p) { if (in_array($p, $available, true)) { $picked = $p; break; } }
+                                if (is_null($picked)) { $picked = reset($available); }
+                                if (!empty($picked)) { $test_model = $picked; update_option('wordwise_ai_model', $picked); }
+                            }
+                        }
+                    }
+                    $url = "https://generativelanguage.googleapis.com/v1/models/" . rawurlencode($test_model) . ":generateContent?key=" . rawurlencode($test_key);
+                    $body = json_encode([
+                        'contents' => [[ 'parts' => [[ 'text' => 'Write a short 3-paragraph blog post about the importance of good developer experience.' ] ] ] ],
+                        'generationConfig' => ['temperature'=>0.5,'maxOutputTokens'=>$test_max]
+                    ]);
+                    $resp = wp_remote_post($url, ['headers'=>['Content-Type'=>'application/json'],'body'=>$body,'timeout'=>30]);
+                    if (is_wp_error($resp)) {
+                        echo '<div class="error"><p>Test failed: ' . esc_html($resp->get_error_message()) . '</p></div>';
+                    } else {
+                        $raw = wp_remote_retrieve_body($resp);
+                        $data = json_decode($raw, true);
+                        $extracted = '';
+                        if (!empty($data['candidates'][0]['content']['parts'][0]['text'])) $extracted = $data['candidates'][0]['content']['parts'][0]['text'];
+                        elseif (!empty($data['candidates'][0]['content']['text'])) $extracted = $data['candidates'][0]['content']['text'];
+                        elseif (!empty($data['candidates'][0]['text'])) $extracted = $data['candidates'][0]['text'];
+                        if (!empty($extracted)) {
+                            echo '<div class="updated"><p>Test succeeded — sample response:</p><div style="background:#fff;padding:10px;border:1px solid #ddd;white-space:pre-wrap;">' . esc_html($extracted) . '</div></div>';
+                        } else {
+                            echo '<div class="error"><p>Test completed but no text returned. Raw response: </p><pre style="max-height:200px;overflow:auto;background:#fff;border:1px solid #ddd;">' . esc_html($raw) . '</pre></div>';
+                        }
+                    }
+                }
+            }
             // If the user left model on Auto (empty) attempt to auto-detect best model from the API key
             $saved_model = get_option('wordwise_ai_model', '');
             if (empty($saved_model)) {
                 $api_key_try = sanitize_text_field($_POST['wordwise_ai_api_key']);
                 if (!empty($api_key_try)) {
-                    $list_models_url = "https://generativelanguage.googleapis.com/v1/models?key={$api_key_try}";
-                    $models_response = wp_remote_get($list_models_url);
+                    $list_models_url = "https://generativelanguage.googleapis.com/v1/models?key=" . rawurlencode($api_key_try);
+                    $models_response = wp_remote_get($list_models_url, ['timeout'=>15]);
                     if (!is_wp_error($models_response)) {
                         $models_data = json_decode(wp_remote_retrieve_body($models_response), true);
                         if (!empty($models_data['models']) && is_array($models_data['models'])) {
@@ -102,11 +169,40 @@ class Wordwise_Admin {
         }
         $key = esc_attr(get_option('wordwise_ai_api_key', ''));
         $saved_model = esc_attr(get_option('wordwise_ai_model', ''));
+        $saved_max = esc_attr(get_option('wordwise_ai_max_output_tokens', 1024));
+        $saved_retries = esc_attr(get_option('wordwise_ai_retries', 1));
         ?>
         <div class="wrap">
             <h1>WordWise AI Settings</h1>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Max output tokens</th>
+                        <td>
+                            <input type="number" name="wordwise_ai_max_output_tokens" value="<?php echo $saved_max; ?>" class="small-text" min="64" max="8192" />
+                            <p class="description">Maximum tokens to allow the model to generate (increase for longer blog posts).</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Retries on MAX_TOKENS</th>
+                        <td>
+                            <input type="number" name="wordwise_ai_retries" value="<?php echo $saved_retries; ?>" class="small-text" min="0" max="3" />
+                            <p class="description">If generation hits the token limit, retry with a larger maxOutputTokens up to this many times.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Test API</th>
+                        <td>
+                            <p>
+                                <button type="submit" name="wwai_test" class="button">Test API / Model</button>
+                                <span class="description">Run a quick sample generation using the selected key and model.</span>
+                            </p>
+                        </td>
+                    </tr>
             <form method="post">
-                <?php wp_nonce_field('wwai_save_key'); ?>
+                <p>
+                    <input type="submit" name="wwai_save_key" class="button button-primary" value="Save Key"/>
+                </p>
                 <table class="form-table">
                     <tr>
                         <th>Gemini API Key</th>
