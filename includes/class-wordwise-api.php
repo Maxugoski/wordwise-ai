@@ -13,22 +13,26 @@ function wwai_send_prompt() {
     if (empty($api_key)) {
         wp_send_json_error(['message'=>'API key not configured. Add it in Settings → WordWise AI.']);
     }
-    $url = "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={$api_key}";
+    $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.0-pro:generateContent?key={$api_key}";
     $body = json_encode([
-        'contents' => [
-            [
-                'parts' => [
-                    [
-                        'text' => $prompt
-                    ]
-                ]
-            ]
+        'prompt' => [
+            'text' => $prompt
         ],
-        'generationConfig' => [
-            'temperature' => 0.7,
-            'maxOutputTokens' => 1024
-        ]
+        'temperature' => 0.7,
+        'maxOutputTokens' => 1024
     ]);
+    
+    // First, let's verify if the model exists
+    $list_models_url = "https://generativelanguage.googleapis.com/v1beta/models?key={$api_key}";
+    $models_response = wp_remote_get($list_models_url);
+    if (!is_wp_error($models_response)) {
+        $models_data = json_decode(wp_remote_retrieve_body($models_response), true);
+        if (isset($models_data['models'])) {
+            wp_send_json_error(['message' => 'Available models: ' . implode(', ', array_column($models_data['models'], 'name'))]);
+            return;
+        }
+    }
+    
     $response = wp_remote_post($url, [
         'headers' => [
             'Content-Type' => 'application/json'
