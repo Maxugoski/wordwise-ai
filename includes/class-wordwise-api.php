@@ -13,10 +13,29 @@ function wwai_send_prompt() {
     if (empty($api_key)) {
         wp_send_json_error(['message'=>'API key not configured. Add it in Settings → WordWise AI.']);
     }
-    $model = 'gemini-pro';
-    $url = "https://generativelanguage.googleapis.com/v1/models/{$model}:generateContent?key={$api_key}";
-    $body = json_encode(['contents'=>[['parts'=>[['text'=>$prompt]]]]]);
-    $response = wp_remote_post($url, ['headers'=>['Content-Type'=>'application/json'],'body'=>$body,'timeout'=>60]);
+    $url = "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={$api_key}";
+    $body = json_encode([
+        'contents' => [
+            [
+                'parts' => [
+                    [
+                        'text' => $prompt
+                    ]
+                ]
+            ]
+        ],
+        'generationConfig' => [
+            'temperature' => 0.7,
+            'maxOutputTokens' => 1024
+        ]
+    ]);
+    $response = wp_remote_post($url, [
+        'headers' => [
+            'Content-Type' => 'application/json'
+        ],
+        'body' => $body,
+        'timeout' => 60
+    ]);
     if (is_wp_error($response)) {
         wp_send_json_error(['message'=>$response->get_error_message()]);
     }
