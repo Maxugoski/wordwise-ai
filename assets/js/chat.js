@@ -47,7 +47,19 @@
                 localStorage.setItem('wwai_history', JSON.stringify(history.slice(0,50)));
                 renderHistory();
             } else {
-                addMessage('ai', 'Error: ' + (data.data && data.data.message ? data.data.message : 'Unknown'));
+                // Show a clearer error and include raw server response when available for debugging
+                console.warn('WordWise AI response error:', data);
+                let msg = data.data && data.data.message ? data.data.message : 'Unknown';
+                if (data.data && data.data.raw) {
+                    // Try to present a short raw snippet instead of jumbo payload
+                    try {
+                        const rawStr = typeof data.data.raw === 'string' ? data.data.raw : JSON.stringify(data.data.raw);
+                        msg += ' — Raw: ' + rawStr.substring(0, 500) + (rawStr.length > 500 ? '…' : '');
+                    } catch (e) {
+                        // ignore stringify errors
+                    }
+                }
+                addMessage('ai', 'Error: ' + msg);
             }
         } catch (e) {
             addMessage('ai', 'Request failed: ' + e.message);

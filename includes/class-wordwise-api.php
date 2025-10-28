@@ -21,10 +21,12 @@ function wwai_send_prompt() {
         wp_send_json_error(['message'=>$response->get_error_message()]);
     }
     $raw = wp_remote_retrieve_body($response);
+    $code = wp_remote_retrieve_response_code($response);
     $data = json_decode($raw, true);
     if (isset($data['candidates'][0]['content']['parts'][0]['text'])) {
         wp_send_json_success(['text'=>$data['candidates'][0]['content']['parts'][0]['text']]);
     } else {
-        wp_send_json_error(['message'=>'No valid response','raw'=>$raw]);
+        // Include HTTP status code and raw body to aid debugging
+        wp_send_json_error(['message'=>'No valid response','status'=>$code,'raw'=>$raw]);
     }
 }
