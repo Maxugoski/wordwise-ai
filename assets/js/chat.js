@@ -25,13 +25,85 @@
             historyEl.appendChild(b);
         });
     }
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    // Minimal, safe Markdown -> HTML converter for chat output.
+    // - Escapes HTML first to prevent injection
+    // - Supports headings (#, ##, ###), bold (**text**), italic (*text*), links [text](url), unordered lists (- or *), and line breaks
+    function markdownToHtml(md) {
+        if (!md && md !== 0) return '';
+        let text = String(md);
+        // Escape HTML
+        text = escapeHtml(text);
+
+        // Convert links: [text](url)
+        text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(_, t, u){
+            const href = escapeHtml(u);
+            const label = t;
+            return '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + label + '</a>';
+        });
+
+        // Bold: **text**
+        text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        // Italic: *text* (avoid interfering with bold)
+        text = text.replace(/(^|[^*])\*([^*]+)\*([^*]|$)/g, function(_, a, b, c){ return a + '<em>' + b + '</em>' + c; });
+
+        // Headings (###, ##, #) at start of line
+        text = text.replace(/^###\s*(.+)$/gm, '<h3>$1</h3>');
+        text = text.replace(/^##\s*(.+)$/gm, '<h2>$1</h2>');
+        text = text.replace(/^#\s*(.+)$/gm, '<h1>$1</h1>');
+
+        // Unordered lists: transform lines starting with - or * into <ul>
+        const lines = text.split(/\r?\n/);
+        const out = [];
+        let inList = false;
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const m = line.match(/^\s*[-\*]\s+(.+)$/);
+            if (m) {
+                if (!inList) { out.push('<ul>'); inList = true; }
+                out.push('<li>' + m[1] + '</li>');
+            } else {
+                if (inList) { out.push('</ul>'); inList = false; }
+                out.push(line);
+            }
+        }
+        if (inList) out.push('</ul>');
+
+        let joined = out.join('\n');
+
+        // Convert double newlines into paragraphs
+        joined = joined.replace(/\n{2,}/g, '</p><p>');
+        // Wrap remaining single newlines with <br>
+        joined = joined.replace(/\n/g, '<br>');
+
+        // Ensure paragraphs are wrapped
+        if (!/^\s*<p>/i.test(joined)) {
+            joined = '<p>' + joined + '</p>';
+        }
+
+        return joined;
+    }
+
     function addMessage(role, text){
         const wrap = document.createElement('div');
         wrap.className = role==='user' ? 'text-right' : 'text-left';
         const bubble = document.createElement('div');
         bubble.className = role==='user' ? 'inline-block bg-green-100 text-gray-800 px-3 py-2 rounded ml-auto' : 'inline-block bg-white text-gray-800 px-3 py-2 rounded';
         bubble.style.maxWidth='80%';
-        bubble.textContent = text;
+        // Render AI/user text as safe HTML (convert markdown common patterns)
+        try {
+            bubble.innerHTML = markdownToHtml(text);
+        } catch (e) {
+            bubble.textContent = String(text);
+        }
         wrap.appendChild(bubble);
         messages.appendChild(wrap);
         messages.scrollTop = messages.scrollHeight;
