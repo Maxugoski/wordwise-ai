@@ -57,7 +57,7 @@ class Wordwise_Admin {
                         </div>
                     </div>
                 </div>
-                <p class="text-xs text-gray-500 mt-4">Built with ❤️ by <a href="https://maxugoski.github.io/Portfolio/" target="_blank">Ugochukwu Ogoke</a></p>
+                <p class="text-xs text-gray-500 mt-4">Built with ❤️ by <a href="maxugoski.github.io/wordpress-portfolio/" target="_blank">Ugochukwu Ogoke</a></p>
             </div>
         </div>
         <?php
